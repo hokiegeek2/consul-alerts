@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	
 
 	"regexp"
 
@@ -26,6 +27,8 @@ const (
 type configType int
 
 type ConsulAlertClient struct {
+	catalog *consulapi.Catalog
+	agent *consulapi.Agent
 	api    *consulapi.Client
 	config *ConsulAlertConfig
 }
@@ -42,7 +45,7 @@ func NewClient(address, dc, aclToken string) (*ConsulAlertClient, error) {
 		api:    api,
 		config: alertConfig,
 	}
-
+	
 	try := 1
 	for {
 		try += try
@@ -61,6 +64,7 @@ func NewClient(address, dc, aclToken string) (*ConsulAlertClient, error) {
 
 	client.LoadConfig()
 	client.UpdateCheckData()
+	
 	return client, nil
 }
 
@@ -302,7 +306,7 @@ func (c *ConsulAlertClient) UpdateCheckData() {
 	}
 
 	for _, health := range healths {
-
+		
 		node := health.Node
 		service := health.ServiceID
 		check := health.CheckID
@@ -310,9 +314,10 @@ func (c *ConsulAlertClient) UpdateCheckData() {
 			service = "_"
 		}
 		key := fmt.Sprintf("consul-alerts/checks/%s/%s/%s", node, service, check)
-
+		//serviceKey := fmt.Sprintf("consul-alerts/services", service)
+		//log.Printf("Checking Status of %",key)
 		status, _, _ := kvApi.Get(key, nil)
-		existing := status != nil
+		existingInstance := status != nil
 
 		localHealth := Check(*health)
 
@@ -321,8 +326,18 @@ func (c *ConsulAlertClient) UpdateCheckData() {
 			continue
 		}
 
-		if !existing {
+		if !existingInstance {
+			log.Printf("Registering %s : %s : %s : %s : %s as a Consul service",service, node, check,localHealth.Name,localHealth.ServiceName)
+			serviceKey := fmt.Sprintf("consul-alerts/services/%s",service)
+			var serviceMap = make(map[string]string)
+			serviceMap["name"] = localHealth.Name
+			serviceMap["service"] = localHealth.ServiceName
+			serviceMap["node"] = localHealth.Node
+			serviceMap["check"] = check
+			serviceValue, _ := json.Marshal(serviceMap)
+			kvApi.Put(&consulapi.KVPair{Key: serviceKey, Value: serviceValue}, nil)
 			c.registerHealthCheck(key, &localHealth)
+			c.IsExistingService(localHealth)
 		} else {
 			c.updateHealthCheck(key, &localHealth)
 		}
@@ -357,6 +372,20 @@ func (c *ConsulAlertClient) UpdateCheckData() {
 	}
 
 }
+
+func (c *ConsulAlertClient) IsExistingService(check Check) bool {
+	var catalog = c.api.Catalog()
+	if (catalog == nil) {
+		log.Println("Catalog is fokking nil")
+	}
+	var cNode, _, _ = catalog.Node(check.Node, nil)
+	log.Println(cNode.Services)
+	//var cServices, _,_ = catalog.Service(check.ServiceName, "", nil)
+	
+	
+	//log.Println("Catalog Service: %s %s %s %s %s",cService.Node,cService.Address,cService.ServiceName)
+	return false
+} 
 
 // GetReminders returns list of reminders
 func (c *ConsulAlertClient) GetReminders() []notifier.Message {
@@ -512,15 +541,16 @@ func (c *ConsulAlertClient) VictorOpsNotifier() *notifier.VictorOpsNotifier {
 }
 
 func (c *ConsulAlertClient) registerHealthCheck(key string, health *Check) {
-
 	log.Printf(
-		"Registering new health check: node=%s, service=%s, check=%s, status=%s",
+		"Registering new health check: node=%s, service=%s, check=%s, status=%s, key=%s",
 		health.Node,
 		health.ServiceName,
 		health.Name,
 		health.Status,
+		key,
 	)
 
+	
 	var newStatus Status
 	if health.Status == "passing" {
 		newStatus = Status{
@@ -535,21 +565,21 @@ func (c *ConsulAlertClient) registerHealthCheck(key string, health *Check) {
 			HealthCheck:      health,
 		}
 	}
-
+	
 	statusData, _ := json.Marshal(newStatus)
 	c.api.KV().Put(&consulapi.KVPair{Key: key, Value: statusData}, nil)
 }
 
 func (c *ConsulAlertClient) updateHealthCheck(key string, health *Check) {
-
+	log.Printf("Name:%s ServiceName:%s",health.Name,health.ServiceName)
 	kvpair, _, _ := c.api.KV().Get(key, nil)
 	val := kvpair.Value
 	var storedStatus Status
 	json.Unmarshal(val, &storedStatus)
-
+	//storedStatus
 	// no status change if the stored status and latest status is the same
 	noStatusChange := storedStatus.Current == health.Status
-
+	
 	// new pending status if it's a new status and it's not the same as the pending status
 	newPendingStatus := storedStatus.Current != health.Status && storedStatus.Pending != health.Status
 
@@ -558,6 +588,10 @@ func (c *ConsulAlertClient) updateHealthCheck(key string, health *Check) {
 
 	// indicate whether we are changing storedStatus to prevent unnecessary PUT to KV
 	changed := false
+
+	if (health.Status == "Critical") {
+		
+	}
 
 	switch {
 
@@ -579,6 +613,9 @@ func (c *ConsulAlertClient) updateHealthCheck(key string, health *Check) {
 		storedStatus.Pending = health.Status
 		storedStatus.PendingTimestamp = time.Now()
 		changed = true
+		if (storedStatus.Pending == "Critical") {
+			log.Printf("ITS CRITICAL")
+		}
 		log.Printf(
 			"%s:%s:%s is now pending status change from %s to %s.",
 			health.Node,

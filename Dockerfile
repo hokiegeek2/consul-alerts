@@ -1,19 +1,9 @@
-FROM alpine:edge
-MAINTAINER Acaleph <admin@acale.ph>
+FROM golang
+MAINTAINER John Yost hokiegeek2@gmail.com
 
-ENV GOPATH /go
-
-RUN mkdir -p /go && \
-    apk update && \
-    apk add bash ca-certificates git go alpine-sdk && \
-    go get -v github.com/AcalephStorage/consul-alerts && \
-    mv /go/bin/consul-alerts /bin && \
-    go get -v github.com/hashicorp/consul && \
-    mv /go/bin/consul /bin && \
-    rm -rf /go && \
-    apk del --purge go git alpine-sdk && \
-    rm -rf /var/cache/apk/*
+ADD consul-exec /usr/local/sbin/consul
+ADD consul-alerts /usr/local/sbin
 
 EXPOSE 9000
 CMD []
-ENTRYPOINT [ "/bin/consul-alerts", "--alert-addr=0.0.0.0:9000" ]
+ENTRYPOINT [ "consul-alerts", "--alert-addr=0.0.0.0:9000" ]
