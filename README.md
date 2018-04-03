@@ -267,7 +267,8 @@ Ex. `emailer_only` would be located at `consul-alerts/config/notif-profiles/emai
 }
 ```
 
-**NOTE:** The Interval being set to 0 **disables** Reminders from being sent for a given alert.  If the service stays in a critical status for an extended period, only that first notification will be sent.
+**NOTE:** The Interval being set to 0 **disables** Reminders from being sent for a given alert.  If the service stays in a critical status for an extended period, only that first notification will be sent. In this example, a reminder notification
+is sent every 10 minutes.
 
 **Example - Notification Profile to only send Emails to the overridden receivers:**
 
@@ -281,9 +282,7 @@ Ex. `emailer_only` would be located at `consul-alerts/config/notif-profiles/emai
     "email":true
   },
   "VarOverrides": {
-    "email": {
-      "receivers": ["my-team@company.com"]
-    }
+    "receivers": ["my-team@company.com"]
   }
 }
 ```
